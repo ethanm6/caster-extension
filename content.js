@@ -71,13 +71,16 @@ const UI_CSS = `
 :host { all: initial; }
 * { box-sizing: border-box; font-family: system-ui, sans-serif; margin: 0; }
 .fab {
-  position: fixed; right: 16px; bottom: 24px; z-index: 2147483647;
+  position: fixed; z-index: 2147483647;
   width: 52px; height: 52px; border-radius: 50%; border: none; padding: 0;
   background: rgba(63, 81, 181, 0.92); color: #fff;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
+  touch-action: none; user-select: none;
 }
+.fab[hidden] { display: none; }
+.fab.snap { transition: left 0.2s ease, top 0.2s ease; }
 .fab svg { width: 30px; height: 24px; display: block; }
 .badge {
   position: absolute; top: -4px; right: -4px;
@@ -149,6 +152,87 @@ const KIND_LABELS = {
 let ui = null;
 let videos = [];
 let panelOpen = false;
+let fabCorner = "br"; // "t"/"b" + "l"/"r"
+
+function applyCorner(fab, animate) {
+  const w = fab.offsetWidth || 52;
+  const h = fab.offsetHeight || 52;
+  const mx = 16;
+  const my = 24;
+  const left = fabCorner.includes("l") ? mx : window.innerWidth - w - mx;
+  const top = fabCorner.includes("t") ? my : window.innerHeight - h - my;
+  if (animate) {
+    fab.classList.add("snap");
+    setTimeout(() => fab.classList.remove("snap"), 250);
+  }
+  fab.style.left = left + "px";
+  fab.style.top = top + "px";
+}
+
+function makeDraggable(fab) {
+  let pid = null;
+  let moved = false;
+  let startX = 0;
+  let startY = 0;
+  let startLeft = 0;
+  let startTop = 0;
+
+  fab.addEventListener("pointerdown", (e) => {
+    if (!e.isPrimary) return;
+    pid = e.pointerId;
+    moved = false;
+    startX = e.clientX;
+    startY = e.clientY;
+    const r = fab.getBoundingClientRect();
+    startLeft = r.left;
+    startTop = r.top;
+    try {
+      fab.setPointerCapture(pid);
+    } catch (err) {
+      /* pointer gone already */
+    }
+  });
+
+  fab.addEventListener("pointermove", (e) => {
+    if (pid === null || e.pointerId !== pid) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (!moved && Math.hypot(dx, dy) < 8) return; // still a tap
+    moved = true;
+    fab.classList.remove("snap");
+    const maxL = window.innerWidth - fab.offsetWidth;
+    const maxT = window.innerHeight - fab.offsetHeight;
+    fab.style.left = Math.min(Math.max(startLeft + dx, 0), maxL) + "px";
+    fab.style.top = Math.min(Math.max(startTop + dy, 0), maxT) + "px";
+  });
+
+  const finish = (e) => {
+    if (pid === null || e.pointerId !== pid) return;
+    pid = null;
+    if (!moved) return;
+    const r = fab.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    fabCorner =
+      (cy < window.innerHeight / 2 ? "t" : "b") +
+      (cx < window.innerWidth / 2 ? "l" : "r");
+    applyCorner(fab, true);
+    browser.storage.local.set({ fabCorner }).catch(() => {});
+  };
+  fab.addEventListener("pointerup", finish);
+  fab.addEventListener("pointercancel", finish);
+
+  fab.addEventListener("click", (e) => {
+    if (moved) {
+      // Tail end of a drag, not a tap.
+      e.preventDefault();
+      e.stopPropagation();
+      moved = false;
+      return;
+    }
+    togglePanel();
+  });
+}
 
 function ensureUi() {
   if (ui) return ui;
@@ -175,7 +259,7 @@ function ensureUi() {
   const badge = document.createElement("span");
   badge.className = "badge";
   fab.appendChild(badge);
-  fab.addEventListener("click", () => togglePanel());
+  makeDraggable(fab);
 
   const scrim = document.createElement("div");
   scrim.className = "scrim";
@@ -203,6 +287,7 @@ function ensureUi() {
   document.documentElement.appendChild(host);
 
   ui = { host, fab, badge, scrim, panel, list };
+  applyCorner(fab, false);
   return ui;
 }
 
@@ -330,4 +415,18 @@ if (IS_TOP) {
       updateUi();
     })
     .catch(() => {});
+
+  browser.storage.local
+    .get("fabCorner")
+    .then((r) => {
+      if (r && /^[tb][lr]$/.test(r.fabCorner || "")) {
+        fabCorner = r.fabCorner;
+        if (ui) applyCorner(ui.fab, false);
+      }
+    })
+    .catch(() => {});
+
+  window.addEventListener("resize", () => {
+    if (ui) applyCorner(ui.fab, false);
+  });
 }

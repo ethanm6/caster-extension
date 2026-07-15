@@ -103,6 +103,8 @@ const UI_CSS = `
 .head {
   display: flex; justify-content: space-between; align-items: center;
   padding: 14px 16px 8px; font-weight: 600;
+  position: sticky; top: 0; background: inherit;
+  border-radius: 16px 16px 0 0;
 }
 .close {
   border: none; background: none; color: inherit;

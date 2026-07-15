@@ -1,0 +1,39 @@
+{
+  "manifest_version": 2,
+  "name": "Caster",
+  "version": "0.1.0",
+  "description": "Finds videos on the page and casts them with the Caster app.",
+  "icons": {
+    "48": "icons/icon.svg",
+    "96": "icons/icon.svg"
+  },
+  "permissions": [
+    "webRequest",
+    "webNavigation",
+    "tabs",
+    "<all_urls>"
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "browser_action": {
+    "default_icon": "icons/icon.svg",
+    "default_title": "Cast videos on this page"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "caster-extension@caster.video",
+      "strict_min_version": "102.0"
+    },
+    "gecko_android": {}
+  }
+}

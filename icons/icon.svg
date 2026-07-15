@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
+  <!-- Caster launcher glyph on a round indigo tile -->
+  <circle cx="54" cy="54" r="54" fill="#3F51B5"/>
+  <g transform="translate(54 54) scale(0.66) translate(-54 -54)" fill="#E8EAF6">
+    <path d="M24,30h60c2.2,0 4,1.8 4,4v40c0,2.2 -1.8,4 -4,4H56v-6h26V36H26v8h-6v-10c0,-2.2 1.8,-4 4,-4z"/>
+    <path d="M20,72c3.3,0 6,2.7 6,6h-6zM20,62c8.8,0 16,7.2 16,16h-6c0,-5.5 -4.5,-10 -10,-10zM20,52c14.4,0 26,11.6 26,26h-6c0,-11 -9,-20 -20,-20z"/>
+  </g>
+</svg>

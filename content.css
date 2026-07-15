@@ -1,0 +1,6 @@
+/* Shield the shadow host from page styling; everything else lives in the shadow root. */
+caster-ext-host {
+  all: initial !important;
+  display: block !important;
+  position: static !important;
+}

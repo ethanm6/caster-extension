@@ -24,7 +24,6 @@ const UI_CSS = `
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
   touch-action: none; user-select: none;
-  transform-origin: top left;
   transition: opacity 0.15s ease;
 }
 .fab[hidden] { display: none; }
@@ -45,8 +44,8 @@ const UI_CSS = `
 }
 .scrim.off { opacity: 0; }
 .panel {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 2147483647;
-  max-height: 65vh;
+  /* placePanel supplies the geometry (left/width/bottom/max-height). */
+  position: fixed; z-index: 2147483647;
   display: flex; flex-direction: column;
   background: #fdfdff; color: #1a1a2e;
   border-radius: 28px 28px 0 0;
@@ -129,7 +128,6 @@ const KIND_LABELS = {
   webm: "WebM",
   mov: "MOV",
   ts: "TS",
-  video: "VIDEO",
 };
 
 let ui = null;
@@ -155,21 +153,12 @@ let lastPinTop = null; // vertical edge last anchored to, for duck-on-flip
 // visual-viewport space so the UI stays on screen at a constant size.
 function viewportBox() {
   const vv = window.visualViewport;
-  if (vv) {
-    return {
-      left: vv.offsetLeft,
-      top: vv.offsetTop,
-      width: vv.width,
-      height: vv.height,
-      scale: vv.scale || 1,
-    };
-  }
   return {
-    left: 0,
-    top: 0,
-    width: window.innerWidth,
-    height: window.innerHeight,
-    scale: 1,
+    left: vv.offsetLeft,
+    top: vv.offsetTop,
+    width: vv.width,
+    height: vv.height,
+    scale: vv.scale || 1,
   };
 }
 
@@ -656,10 +645,8 @@ function ensureUi() {
   // video-less pages never pay for these listeners.
   window.addEventListener("resize", repositionUi);
   window.addEventListener("scroll", repositionUi, { passive: true });
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", repositionUi);
-    window.visualViewport.addEventListener("scroll", repositionUi);
-  }
+  window.visualViewport.addEventListener("resize", repositionUi);
+  window.visualViewport.addEventListener("scroll", repositionUi);
   return ui;
 }
 

@@ -176,7 +176,6 @@ function addEntry(tabId, store, props) {
     {
       url: null,
       kind: "video",
-      source: "net",
       mime: null,
       size: null,
       width: null,
@@ -187,7 +186,7 @@ function addEntry(tabId, store, props) {
     },
     props
   );
-  entry.mime = entry.mime || KIND_MIMES[entry.kind] || "video/*";
+  entry.mime = entry.mime || KIND_MIMES[entry.kind];
   entry.file = entry.file || fileNameOf(entry.url);
   store.entries.set(entry.url, entry);
 
@@ -258,7 +257,6 @@ browser.webRequest.onResponseStarted.addListener(
     addEntry(details.tabId, store, {
       url: details.url,
       kind,
-      source: "net",
       size: sizeFrom(details),
     });
   },
@@ -308,7 +306,6 @@ function handleTabless(details, ct, kind) {
         addEntry(tab.id, store, {
           url: details.url,
           kind,
-          source: "net",
           size: sizeFrom(details),
         });
       }
@@ -488,7 +485,6 @@ browser.runtime.onMessage.addListener((msg, sender) => {
         addEntry(tabId, store, {
           url: v.url,
           kind: classifyByUrl(v.url) || "video",
-          source: "dom",
           width: v.width || null,
           height: v.height || null,
           duration: v.duration || null,
@@ -509,7 +505,7 @@ browser.runtime.onMessage.addListener((msg, sender) => {
 browser.webNavigation.onBeforeNavigate.addListener((details) => {
   if (details.frameId !== 0) return;
   // Casting navigates to intent:// — the page itself survives that.
-  if (/^(intent|caster):/i.test(details.url)) return;
+  if (/^intent:/i.test(details.url)) return;
   tabStores.delete(details.tabId);
 });
 

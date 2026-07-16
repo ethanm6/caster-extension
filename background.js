@@ -46,16 +46,38 @@ const KIND_MIMES = {
   video: "video/*",
 };
 
-// tabId -> { entries: Map(url -> entry), variantUrls: Set, hasHls: bool }
+// tabId -> { entries: Map(url -> entry), variantUrls: Set, hasHls: bool,
+//            log: string[] }
 const tabStores = new Map();
 
 function getStore(tabId) {
   let store = tabStores.get(tabId);
   if (!store) {
-    store = { entries: new Map(), variantUrls: new Set(), hasHls: false };
+    store = {
+      entries: new Map(),
+      variantUrls: new Set(),
+      hasHls: false,
+      log: [],
+    };
     tabStores.set(tabId, store);
   }
   return store;
+}
+
+// Diagnostics shown in the panel's ⓘ view: per-tab ring log of media-looking
+// responses; tabless events (workers, prefetch) land in a global log.
+const MAX_LOG = 50;
+const MEDIAISH_URL = /\.(m3u8|mpd|mp4|m4v|mkv|webm|mov)(\?|#|$)/i;
+const MEDIAISH_CT = /mpegurl|dash|video\//i;
+const globalLog = [];
+
+function logLine(buf, line) {
+  buf.push(new Date().toISOString().slice(11, 19) + " " + line);
+  if (buf.length > MAX_LOG) buf.shift();
+}
+
+function urlTail(url) {
+  return url.length > 120 ? "…" + url.slice(-119) : url;
 }
 
 function findingsFor(tabId) {
@@ -170,20 +192,42 @@ function addEntry(tabId, store, props) {
 
 // ---------- network sniffer ----------
 
+// The main video often starts loading last (after thumbnails and preview
+// clips), so on overflow evict the oldest plain entry, never a manifest.
+function makeRoom(store) {
+  if (store.entries.size < MAX_ENTRIES) return true;
+  for (const [url, e] of store.entries) {
+    if (e.kind !== "hls" && e.kind !== "dash") {
+      store.entries.delete(url);
+      return true;
+    }
+  }
+  return false;
+}
+
 browser.webRequest.onResponseStarted.addListener(
   (details) => {
-    if (details.tabId < 0) return;
-    const kind =
-      classifyByContentType(
-        headerValue(details.responseHeaders, "content-type")
-      ) || classifyByUrl(details.url);
-    if (!kind) return;
+    const ct = headerValue(details.responseHeaders, "content-type");
+    const kind = classifyByContentType(ct) || classifyByUrl(details.url);
+    if (details.tabId < 0) {
+      if (kind && kind !== "ts") handleTabless(details, ct, kind);
+      return;
+    }
+    if (!kind && !MEDIAISH_URL.test(details.url) && !MEDIAISH_CT.test(ct || ""))
+      return;
 
     const store = getStore(details.tabId);
+    // Segments are too noisy to log.
+    if (kind !== "ts")
+      logLine(
+        store.log,
+        (kind || "?") + " " + (ct || "-") + " " + urlTail(details.url)
+      );
+    if (!kind) return;
     if (store.entries.has(details.url) || store.variantUrls.has(details.url))
       return;
     if (kind === "ts" && store.hasHls) return;
-    if (store.entries.size >= MAX_ENTRIES) return;
+    if (!makeRoom(store)) return;
 
     addEntry(details.tabId, store, {
       url: details.url,
@@ -195,6 +239,42 @@ browser.webRequest.onResponseStarted.addListener(
   { urls: ["<all_urls>"] },
   ["responseHeaders"]
 );
+
+// Worker/prefetch requests carry tabId -1; attribute them to open tabs of
+// the initiating origin so those videos aren't silently lost.
+function handleTabless(details, ct, kind) {
+  logLine(globalLog, kind + " " + (ct || "-") + " " + urlTail(details.url));
+  const src = details.documentUrl || details.originUrl;
+  if (!src) return;
+  let origin;
+  try {
+    origin = new URL(src).origin;
+  } catch (e) {
+    return;
+  }
+  if (!/^https?:/.test(origin)) return;
+  browser.tabs
+    .query({ url: origin + "/*" })
+    .then((tabs) => {
+      for (const tab of tabs) {
+        const store = getStore(tab.id);
+        if (
+          store.entries.has(details.url) ||
+          store.variantUrls.has(details.url)
+        )
+          continue;
+        if (!makeRoom(store)) continue;
+        logLine(store.log, "tabless " + kind + " " + urlTail(details.url));
+        addEntry(tab.id, store, {
+          url: details.url,
+          kind,
+          source: "net",
+          size: sizeFrom(details),
+        });
+      }
+    })
+    .catch(() => {});
+}
 
 // ---------- manifest enrichment ----------
 
@@ -333,6 +413,14 @@ browser.runtime.onMessage.addListener((msg, sender) => {
     return Promise.resolve(findingsFor(tabId));
   }
 
+  if (msg.type === "get-status") {
+    const store = tabStores.get(tabId);
+    return Promise.resolve({
+      tabLog: store ? store.log.slice() : [],
+      globalLog: globalLog.slice(),
+    });
+  }
+
   if (msg.type === "dom-videos") {
     const store = getStore(tabId);
     let changed = false;
@@ -355,7 +443,7 @@ browser.runtime.onMessage.addListener((msg, sender) => {
           existing.pageTitle = v.title;
           changed = true;
         }
-      } else if (store.entries.size < MAX_ENTRIES) {
+      } else if (makeRoom(store)) {
         addEntry(tabId, store, {
           url: v.url,
           kind: classifyByUrl(v.url) || "video",

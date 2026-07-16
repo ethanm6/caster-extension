@@ -15,11 +15,15 @@ const IS_TOP = window.top === window;
 
 let lastPushed = "";
 let scanTimer = null;
+let lastScanSummary = "not scanned yet";
 
 function collectVideos() {
   const out = [];
-  for (const v of document.querySelectorAll("video")) {
+  const els = document.querySelectorAll("video");
+  const notes = [];
+  for (const v of els) {
     let src = v.currentSrc || v.src || "";
+    notes.push((src ? src.split(":")[0] : "nosrc") + "/rs" + v.readyState);
     if (!/^https?:/i.test(src)) {
       src = "";
       for (const s of v.querySelectorAll("source")) {
@@ -38,6 +42,8 @@ function collectVideos() {
       title: document.title || "",
     });
   }
+  lastScanSummary =
+    els.length + " <video>" + (notes.length ? ": " + notes.join(", ") : "");
   return out;
 }
 
@@ -112,6 +118,14 @@ const UI_CSS = `
   border: none; background: none; color: inherit;
   font-size: 22px; line-height: 1; padding: 4px 10px; cursor: pointer;
 }
+.info { font-size: 16px; opacity: 0.7; }
+.empty { padding: 4px 16px 16px; opacity: 0.7; }
+.debug {
+  padding: 10px 16px 16px;
+  border-top: 1px solid rgba(128, 128, 128, 0.25);
+  font-family: monospace; font-size: 11px; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-all; opacity: 0.75;
+}
 .row {
   display: block; width: 100%; text-align: left;
   border: none; background: none; color: inherit;
@@ -156,6 +170,8 @@ const KIND_LABELS = {
 let ui = null;
 let videos = [];
 let panelOpen = false;
+let debugOpen = false;
+let debugInfo = null;
 let fabCorner = "br"; // "t"/"b" + "l"/"r"
 
 function applyCorner(fab, animate) {
@@ -278,12 +294,19 @@ function ensureUi() {
   head.className = "head";
   const heading = document.createElement("span");
   heading.textContent = "Videos on this page";
+  const btns = document.createElement("span");
+  const info = document.createElement("button");
+  info.className = "close info";
+  info.textContent = "ⓘ";
+  info.title = "Diagnostics";
+  info.addEventListener("click", () => toggleDebug());
   const close = document.createElement("button");
   close.className = "close";
   close.textContent = "×";
   close.title = "Close";
   close.addEventListener("click", () => hidePanel());
-  head.append(heading, close);
+  btns.append(info, close);
+  head.append(heading, btns);
 
   const list = document.createElement("div");
   list.className = "list";
@@ -351,6 +374,50 @@ function renderList() {
     row.addEventListener("click", () => castVideo(v));
     list.appendChild(row);
   }
+
+  if (!sorted.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "No videos found on this page.";
+    list.appendChild(empty);
+  }
+
+  if (debugOpen) {
+    const box = document.createElement("div");
+    box.className = "debug";
+    const lines = ["dom(top): " + lastScanSummary];
+    if (debugInfo) {
+      lines.push("— network (this tab) —");
+      lines.push(...(debugInfo.tabLog.length ? debugInfo.tabLog : ["(empty)"]));
+      lines.push("— network (no tab: workers/prefetch) —");
+      lines.push(
+        ...(debugInfo.globalLog.length ? debugInfo.globalLog : ["(empty)"])
+      );
+    } else {
+      lines.push("(no background data)");
+    }
+    box.textContent = lines.join("\n");
+    list.appendChild(box);
+  }
+}
+
+function toggleDebug() {
+  debugOpen = !debugOpen;
+  if (!debugOpen) {
+    renderList();
+    return;
+  }
+  pushVideos(); // refresh the DOM scan summary
+  browser.runtime
+    .sendMessage({ type: "get-status" })
+    .then((s) => {
+      debugInfo = s || null;
+      renderList();
+    })
+    .catch(() => {
+      debugInfo = null;
+      renderList();
+    });
 }
 
 function updateUi() {
@@ -358,10 +425,7 @@ function updateUi() {
   const { fab, badge } = ensureUi();
   fab.hidden = videos.length === 0;
   badge.textContent = String(videos.length);
-  if (panelOpen) {
-    if (videos.length) renderList();
-    else hidePanel();
-  }
+  if (panelOpen) renderList();
 }
 
 function showPanel() {
@@ -380,8 +444,10 @@ function hidePanel() {
 }
 
 function togglePanel() {
+  // Opens even with zero findings — the empty state and ⓘ diagnostics
+  // are the tool for "why wasn't this video detected?".
   if (panelOpen) hidePanel();
-  else if (videos.length) showPanel();
+  else showPanel();
 }
 
 function castVideo(v) {

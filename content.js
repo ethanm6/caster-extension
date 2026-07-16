@@ -121,7 +121,7 @@ const UI_CSS = `
   padding: 14px 16px 8px; font-weight: 600;
   touch-action: none;
 }
-.list { overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
+.list { overflow-y: auto; min-height: 0; overscroll-behavior: contain; touch-action: none; }
 .close {
   border: none; background: none; color: inherit;
   font-size: 22px; line-height: 1; padding: 4px 10px; cursor: pointer;
@@ -463,6 +463,78 @@ function makeDraggable(fab) {
   });
 }
 
+// Panning the list natively lets the browser drive the dynamic toolbar in
+// and out (and resize the viewport under the sheet). touch-action: none
+// keeps the browser out of these touches entirely, so the list scrolls
+// itself: direct drag plus a decaying fling.
+function makeListScroller(list) {
+  let tracking = false;
+  let dragging = false;
+  let lastY = 0;
+  let lastT = 0;
+  let vel = 0; // px/ms, positive scrolls toward the end
+  let raf = null;
+
+  list.addEventListener(
+    "touchstart",
+    (e) => {
+      if (raf) {
+        cancelAnimationFrame(raf);
+        raf = null;
+      }
+      tracking = true;
+      dragging = false;
+      vel = 0;
+      lastY = e.touches[0].clientY;
+      lastT = e.timeStamp;
+    },
+    { passive: true }
+  );
+
+  list.addEventListener(
+    "touchmove",
+    (e) => {
+      if (!tracking || e.touches.length > 1) return;
+      const y = e.touches[0].clientY;
+      const dy = lastY - y;
+      if (!dragging) {
+        if (Math.abs(dy) < 6) return; // still a tap
+        dragging = true;
+        lastY = y;
+        lastT = e.timeStamp;
+        return;
+      }
+      e.preventDefault(); // no tap-click after a drag
+      const dt = Math.max(1, e.timeStamp - lastT);
+      list.scrollTop += dy;
+      vel = 0.7 * (dy / dt) + 0.3 * vel;
+      lastY = y;
+      lastT = e.timeStamp;
+    },
+    { passive: false }
+  );
+
+  list.addEventListener("touchend", () => {
+    tracking = false;
+    if (!dragging || Math.abs(vel) < 0.05) return;
+    let prev = performance.now();
+    const step = (now) => {
+      raf = null;
+      const dt = now - prev;
+      prev = now;
+      list.scrollTop += vel * dt;
+      vel *= Math.pow(0.998, dt);
+      const max = list.scrollHeight - list.clientHeight;
+      if (Math.abs(vel) >= 0.02 && list.scrollTop > 0 && list.scrollTop < max)
+        raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+  });
+  list.addEventListener("touchcancel", () => {
+    tracking = false;
+  });
+}
+
 function ensureUi() {
   if (ui) return ui;
 
@@ -519,6 +591,7 @@ function ensureUi() {
 
   const list = document.createElement("div");
   list.className = "list";
+  makeListScroller(list);
   panel.append(head, list);
   shadow.append(fab, scrim, panel);
   document.documentElement.appendChild(host);

@@ -209,15 +209,24 @@ function viewportBox() {
 // A fixed element only holds still on screen while the visual viewport is
 // pinned against the layout viewport edge it is anchored to. On normal
 // pages the two viewports match, so any anchoring is trivially pinned. On
-// pages whose layout viewport exceeds the screen, scrolling pins the visual
-// viewport to the layout viewport's bottom edge going down and its top edge
-// going up — so anchor to the edge matching the current direction with
-// static CSS offsets. The compositor then keeps the button glued (JS
-// chasing always lags); it only drifts briefly after a direction change.
+// pages whose layout viewport exceeds the screen, the visual viewport rests
+// against the top edge at page top and gets pinned to the bottom edge while
+// scrolling down (top edge while scrolling up) — so anchor to the edge the
+// viewport is actually at, falling back to the scroll direction's target
+// edge mid-transition. Static CSS offsets let the compositor keep the
+// button glued (JS chasing always lags); it only drifts briefly between
+// edges after a direction change.
 function vvPinned(box) {
   const excess = window.innerHeight - box.height;
-  if (excess <= 8) return true;
-  return scrollDir === "up" ? box.top < 8 : excess - box.top < 8;
+  return excess <= 8 || box.top < 8 || excess - box.top < 8;
+}
+
+function pinnedEdgeIsTop(box, T) {
+  const excess = window.innerHeight - box.height;
+  if (excess <= 8) return T;
+  if (box.top < 8) return true;
+  if (excess - box.top < 8) return false;
+  return scrollDir === "up";
 }
 
 function anchorFab(fab, box) {
@@ -228,8 +237,7 @@ function anchorFab(fab, box) {
   const h = (fab.offsetHeight || 52) / s;
   const L = fabCorner.includes("l");
   const T = fabCorner.includes("t");
-  const vertExcess = window.innerHeight - box.height;
-  const pinTop = vertExcess > 8 ? scrollDir === "up" : T;
+  const pinTop = pinnedEdgeIsTop(box, T);
   const left = L ? (Math.max(0, box.left) + mx).toFixed(1) + "px" : "";
   const right = L
     ? ""
@@ -613,7 +621,9 @@ function toggleDebug() {
 function updateUi() {
   if (!videos.length && !ui) return;
   const { fab, badge } = ensureUi();
+  const wasHidden = fab.hidden;
   fab.hidden = videos.length === 0;
+  if (wasHidden && !fab.hidden) applyCorner(fab, false);
   badge.textContent = String(videos.length);
   if (panelOpen) renderList();
 }

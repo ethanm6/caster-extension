@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Caster",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "description": "Finds videos on the page and casts them with the Caster app.",
   "icons": {
     "48": "icons/icon.svg",

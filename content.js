@@ -216,28 +216,45 @@ function viewportBox() {
 // edge mid-transition. Static CSS offsets let the compositor keep the
 // button glued (JS chasing always lags); it only drifts briefly between
 // edges after a direction change.
+// Detect overflowing/zoomed pages by width — the dynamic toolbar animates
+// the viewport heights mid-scroll, so any height-based test flaps.
+function overflowingPage(box) {
+  return (
+    Math.abs(box.scale - 1) > 0.01 ||
+    box.left > 1 ||
+    window.innerWidth - box.width > 8
+  );
+}
+
 function vvPinned(box) {
+  if (!overflowingPage(box)) return true;
   const excess = window.innerHeight - box.height;
-  return excess <= 8 || box.top < 8 || excess - box.top < 8;
+  return box.top < 8 || excess - box.top < 8;
 }
 
 function pinnedEdgeIsTop(box, T) {
+  if (!overflowingPage(box)) return T;
   const excess = window.innerHeight - box.height;
-  if (excess <= 8) return T;
   if (box.top < 8) return true;
   if (excess - box.top < 8) return false;
   return scrollDir === "up";
 }
 
 function anchorFab(fab, box) {
-  const s = box.scale;
+  const s = Math.round(box.scale * 100) / 100;
   const tf = Math.abs(s - 1) > 0.01 ? "scale(" + 1 / s + ")" : "";
-  const mx = 16 / s;
-  const my = 24 / s;
-  const h = (fab.offsetHeight || 52) / s;
   const L = fabCorner.includes("l");
   const T = fabCorner.includes("t");
   const pinTop = pinnedEdgeIsTop(box, T);
+  // Only write styles when the anchor itself changes: mid-scroll geometry
+  // is noisy (toolbar animation) and chasing it per event reads as jitter.
+  // Any staleness left behind is corrected by the settle glide.
+  const key = [fabCorner, pinTop, tf].join("|");
+  if (lastFabAnchor === key) return;
+  lastFabAnchor = key;
+  const mx = 16 / s;
+  const my = 24 / s;
+  const h = (fab.offsetHeight || 52) / s;
   const left = L ? (Math.max(0, box.left) + mx).toFixed(1) + "px" : "";
   const right = L
     ? ""
@@ -247,9 +264,6 @@ function anchorFab(fab, box) {
   const vFar = (box.height - h - my).toFixed(1) + "px";
   const top = pinTop ? (T ? vNear : vFar) : "";
   const bottom = pinTop ? "" : T ? vFar : vNear;
-  const key = [fabCorner, left, right, top, bottom, tf].join("|");
-  if (lastFabAnchor === key) return;
-  lastFabAnchor = key;
   fab.style.transformOrigin =
     (pinTop ? "top " : "bottom ") + (L ? "left" : "right");
   fab.style.transform = tf;
@@ -341,8 +355,8 @@ function placePanel(panel) {
 function repositionUi() {
   if (!ui || fabDragging) return;
   const box = viewportBox();
-  if (box.top - lastVvTop > 1) scrollDir = "down";
-  else if (lastVvTop - box.top > 1) scrollDir = "up";
+  if (box.top - lastVvTop > 4) scrollDir = "down";
+  else if (lastVvTop - box.top > 4) scrollDir = "up";
   lastVvTop = box.top;
   anchorFab(ui.fab, box);
   if (panelOpen) placePanel(ui.panel);

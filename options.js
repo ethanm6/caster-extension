@@ -6,7 +6,7 @@ const box = document.getElementById("enabled");
 browser.storage.local
   .get("enabled")
   .then((r) => {
-    box.checked = !r || r.enabled !== false;
+    box.checked = r.enabled !== false;
   })
   .catch(() => {});
 

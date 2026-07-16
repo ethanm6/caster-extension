@@ -14,6 +14,7 @@ const IS_TOP = window.top === window;
 
 // ---------- scanner (all frames) ----------
 
+let extEnabled = true; // options-page switch; off = no scanning, fab hidden
 let lastPushed = "";
 let scanTimer = null;
 let lastScanSummary = "not scanned yet";
@@ -49,6 +50,7 @@ function collectVideos() {
 }
 
 function pushVideos() {
+  if (!extEnabled) return;
   const videos = collectVideos();
   const key = JSON.stringify(videos);
   if (key === lastPushed) return;
@@ -70,7 +72,24 @@ function scheduleScan() {
 for (const ev of ["loadedmetadata", "durationchange", "play"]) {
   document.addEventListener(ev, scheduleScan, true);
 }
-pushVideos();
+
+browser.storage.local
+  .get("enabled")
+  .then((r) => {
+    extEnabled = r.enabled !== false;
+    if (extEnabled) pushVideos();
+    else if (IS_TOP && ui) updateUi();
+  })
+  .catch(() => pushVideos());
+
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !changes.enabled) return;
+  extEnabled = changes.enabled.newValue !== false;
+  if (extEnabled) {
+    lastPushed = ""; // scanning was frozen while off — rescan and re-report
+    scheduleScan();
+  }
+});
 
 // ---------- UI (top frame only) ----------
 
@@ -194,7 +213,6 @@ const KIND_LABELS = {
 
 let ui = null;
 let videos = [];
-let extEnabled = true; // options-page switch; off = keep the fab hidden
 let panelOpen = false;
 let panelOff = true; // panel is translated off-screen below the viewport
 let panelAnimTimer = null;
@@ -925,20 +943,19 @@ if (IS_TOP) {
     .catch(() => {});
 
   browser.storage.local
-    .get(["fabCorner", "enabled"])
+    .get("fabCorner")
     .then((r) => {
-      extEnabled = !r || r.enabled !== false;
-      if (r && /^[tb][lr]$/.test(r.fabCorner || "")) {
+      if (/^[tb][lr]$/.test(r.fabCorner || "")) {
         fabCorner = r.fabCorner;
         repositionUi();
       }
-      if (ui) updateUi();
     })
     .catch(() => {});
 
+  // The all-frames listener above keeps extEnabled current; this one only
+  // reacts to the flip in the UI.
   browser.storage.onChanged.addListener((changes, area) => {
     if (area !== "local" || !changes.enabled) return;
-    extEnabled = changes.enabled.newValue !== false;
     if (!extEnabled) hidePanel();
     updateUi();
   });

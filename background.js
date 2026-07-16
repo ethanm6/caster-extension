@@ -17,13 +17,14 @@
 const MAX_ENTRIES = 30;
 const MAX_MANIFEST_BYTES = 10 * 1024 * 1024;
 
-// Options-page on/off switch. Off = stop sniffing network traffic; existing
-// findings are kept and the content script hides the in-page UI.
+// Options-page on/off switch. Off = stop sniffing network traffic and ignore
+// DOM reports; existing findings are kept and the content script hides the
+// in-page UI.
 let extEnabled = true;
 browser.storage.local
   .get("enabled")
   .then((r) => {
-    extEnabled = !r || r.enabled !== false;
+    extEnabled = r.enabled !== false;
   })
   .catch(() => {});
 browser.storage.onChanged.addListener((changes, area) => {
@@ -31,12 +32,17 @@ browser.storage.onChanged.addListener((changes, area) => {
     extEnabled = changes.enabled.newValue !== false;
 });
 
-const MANIFEST_TYPES = {
+const CT_KINDS = {
   "application/x-mpegurl": "hls",
   "application/vnd.apple.mpegurl": "hls",
   "audio/mpegurl": "hls",
   "audio/x-mpegurl": "hls",
   "application/dash+xml": "dash",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "video/x-matroska": "mkv",
+  "video/quicktime": "mov",
+  "video/mp2t": "ts",
 };
 
 const EXT_KINDS = {
@@ -100,10 +106,21 @@ function findingsFor(tabId) {
   return store ? [...store.entries.values()] : [];
 }
 
+// Findings arrive in bursts (entry, then title, then enrichment) — coalesce
+// so the panel re-renders once per burst instead of once per step.
+const notifyTimers = new Map();
+
 function notify(tabId) {
-  browser.tabs
-    .sendMessage(tabId, { type: "videos", videos: findingsFor(tabId) })
-    .catch(() => {});
+  if (notifyTimers.has(tabId)) return;
+  notifyTimers.set(
+    tabId,
+    setTimeout(() => {
+      notifyTimers.delete(tabId);
+      browser.tabs
+        .sendMessage(tabId, { type: "videos", videos: findingsFor(tabId) })
+        .catch(() => {});
+    }, 50)
+  );
 }
 
 function fileNameOf(url) {
@@ -118,14 +135,7 @@ function fileNameOf(url) {
 function classifyByContentType(ct) {
   if (!ct) return null;
   ct = ct.split(";")[0].trim().toLowerCase();
-  if (MANIFEST_TYPES[ct]) return MANIFEST_TYPES[ct];
-  if (ct === "video/mp4") return "mp4";
-  if (ct === "video/webm") return "webm";
-  if (ct === "video/x-matroska") return "mkv";
-  if (ct === "video/quicktime") return "mov";
-  if (ct === "video/mp2t") return "ts";
-  if (ct.startsWith("video/")) return "video";
-  return null;
+  return CT_KINDS[ct] || (ct.startsWith("video/") ? "video" : null);
 }
 
 function classifyByUrl(url) {
@@ -252,7 +262,21 @@ browser.webRequest.onResponseStarted.addListener(
       size: sizeFrom(details),
     });
   },
-  { urls: ["<all_urls>"] },
+  {
+    urls: ["<all_urls>"],
+    // Streams only arrive via these request classes — letting Firefox drop
+    // images/scripts/styles/fonts up front keeps the listener off the vast
+    // majority of page traffic.
+    types: [
+      "main_frame",
+      "sub_frame",
+      "xmlhttprequest",
+      "media",
+      "object",
+      "speculative",
+      "other",
+    ],
+  },
   ["responseHeaders"]
 );
 
@@ -438,6 +462,7 @@ browser.runtime.onMessage.addListener((msg, sender) => {
   }
 
   if (msg.type === "dom-videos") {
+    if (!extEnabled) return undefined;
     const store = getStore(tabId);
     let changed = false;
     for (const v of msg.videos || []) {

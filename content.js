@@ -79,7 +79,7 @@ const UI_CSS = `
 .fab {
   position: fixed; z-index: 2147483647;
   width: 52px; height: 52px; border-radius: 50%; border: none; padding: 0;
-  background: rgba(63, 81, 181, 0.92); color: #fff;
+  background: rgba(97, 97, 97, 0.92); color: #fff;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
@@ -176,6 +176,9 @@ let panelOpen = false;
 let debugOpen = false;
 let debugInfo = null;
 let fabCorner = "br"; // "t"/"b" + "l"/"r"
+let fabDragging = false;
+let lastFabAnchor = ""; // last applied anchoring, to skip redundant writes
+let redockTimer = null;
 
 // Fixed positioning anchors to the layout viewport, which can be wider than
 // the screen (overflowing pages, pinch zoom) — everything here works in
@@ -207,7 +210,9 @@ function viewportBox() {
 // makes the button jump while the toolbar shows/hides.
 function needsVvTracking(box) {
   return (
-    box.scale !== 1 || box.left > 0 || window.innerWidth - box.width > 1
+    Math.abs(box.scale - 1) > 0.01 ||
+    box.left > 1 ||
+    window.innerWidth - box.width > 1
   );
 }
 
@@ -230,7 +235,15 @@ function cornerPos(fab, box) {
 function applyCorner(fab, animate) {
   const box = viewportBox();
   if (animate) {
-    // Snap in left/top coordinates, then settle into the final anchoring.
+    // Glide in left/top coordinates, then settle into the final anchoring.
+    lastFabAnchor = "";
+    if (!fab.style.left) {
+      const r = fab.getBoundingClientRect();
+      fab.style.left = r.left + "px";
+      fab.style.top = r.top + "px";
+      fab.style.right = "";
+      fab.style.bottom = "";
+    }
     const p = cornerPos(fab, box);
     fab.classList.add("snap");
     fab.style.left = p.left + "px";
@@ -242,6 +255,9 @@ function applyCorner(fab, animate) {
     return;
   }
   if (!needsVvTracking(box)) {
+    const key = "css:" + fabCorner;
+    if (lastFabAnchor === key) return;
+    lastFabAnchor = key;
     fab.style.transform = "";
     fab.style.left = fabCorner.includes("l") ? "16px" : "";
     fab.style.right = fabCorner.includes("l") ? "" : "16px";
@@ -250,8 +266,9 @@ function applyCorner(fab, animate) {
     return;
   }
   const p = cornerPos(fab, box);
+  lastFabAnchor = "vv";
   fab.style.transform =
-    box.scale === 1 ? "" : "scale(" + 1 / box.scale + ")";
+    Math.abs(box.scale - 1) < 0.01 ? "" : "scale(" + 1 / box.scale + ")";
   fab.style.right = "";
   fab.style.bottom = "";
   fab.style.left = p.left + "px";
@@ -278,9 +295,27 @@ function placePanel(panel) {
 }
 
 function repositionUi() {
-  if (!ui) return;
-  applyCorner(ui.fab, false);
-  if (panelOpen) placePanel(ui.panel);
+  if (!ui || fabDragging) return;
+  const box = viewportBox();
+  if (!needsVvTracking(box)) {
+    if (redockTimer) {
+      clearTimeout(redockTimer);
+      redockTimer = null;
+    }
+    applyCorner(ui.fab, false);
+    if (panelOpen) placePanel(ui.panel);
+    return;
+  }
+  // Chasing the visual viewport on every event lags the compositor and
+  // makes the button swim; let it drift with the page while scrolling and
+  // glide back to its corner once things settle.
+  if (redockTimer) clearTimeout(redockTimer);
+  redockTimer = setTimeout(() => {
+    redockTimer = null;
+    if (!ui || fabDragging) return;
+    applyCorner(ui.fab, true);
+    if (panelOpen) placePanel(ui.panel);
+  }, 150);
 }
 
 function makeDraggable(fab) {
@@ -294,6 +329,7 @@ function makeDraggable(fab) {
   fab.addEventListener("pointerdown", (e) => {
     if (!e.isPrimary) return;
     pid = e.pointerId;
+    fabDragging = true;
     moved = false;
     startX = e.clientX;
     startY = e.clientY;
@@ -313,6 +349,7 @@ function makeDraggable(fab) {
     const dy = e.clientY - startY;
     if (!moved && Math.hypot(dx, dy) < 8) return; // still a tap
     moved = true;
+    lastFabAnchor = "";
     fab.classList.remove("snap");
     fab.style.right = "";
     fab.style.bottom = "";
@@ -327,6 +364,7 @@ function makeDraggable(fab) {
   const finish = (e) => {
     if (pid === null || e.pointerId !== pid) return;
     pid = null;
+    fabDragging = false;
     if (!moved) return;
     const r = fab.getBoundingClientRect();
     const cx = r.left + r.width / 2;
@@ -607,6 +645,7 @@ if (IS_TOP) {
     .catch(() => {});
 
   window.addEventListener("resize", repositionUi);
+  window.addEventListener("scroll", repositionUi, { passive: true });
   if (window.visualViewport) {
     window.visualViewport.addEventListener("resize", repositionUi);
     window.visualViewport.addEventListener("scroll", repositionUi);

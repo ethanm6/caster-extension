@@ -101,7 +101,9 @@ const UI_CSS = `
   position: fixed; inset: 0; z-index: 2147483646;
   background: rgba(0, 0, 0, 0.4);
   touch-action: none;
+  transition: opacity 0.2s ease;
 }
+.scrim.off { opacity: 0; }
 .panel {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 2147483647;
   max-height: 65vh;
@@ -112,6 +114,7 @@ const UI_CSS = `
   font-size: 15px;
 }
 .panel[hidden] { display: none; }
+.panel.anim { transition: transform 0.25s ease; }
 .head {
   flex: none;
   display: flex; justify-content: space-between; align-items: center;
@@ -175,6 +178,8 @@ const KIND_LABELS = {
 let ui = null;
 let videos = [];
 let panelOpen = false;
+let panelOff = true; // panel is translated off-screen below the viewport
+let panelAnimTimer = null;
 let debugOpen = false;
 let debugInfo = null;
 let fabCorner = "br"; // "t"/"b" + "l"/"r"
@@ -344,7 +349,11 @@ function applyCorner(fab, animate) {
 function placePanel(panel) {
   const box = viewportBox();
   const s = box.scale;
-  const tf = Math.abs(s - 1) > 0.01 ? "scale(" + 1 / s + ")" : "";
+  const scale = Math.abs(s - 1) > 0.01 ? "scale(" + 1 / s + ")" : "";
+  // The slide-in/out offset rides the same transform as the pinch
+  // counter-scale (extra 40px keeps the top shadow off screen too).
+  const off = panelOff ? "translateY(calc(100% + 40px))" : "";
+  const tf = scale && off ? scale + " " + off : scale || off;
   const left = box.left.toFixed(1) + "px";
   const width = (box.width * s).toFixed(1) + "px";
   const bottom =
@@ -657,17 +666,44 @@ function updateUi() {
 function showPanel() {
   const u = ensureUi();
   renderList();
+  if (panelAnimTimer) clearTimeout(panelAnimTimer);
   panelOpen = true;
+  // Render off-screen below first, then transition the transform so the
+  // sheet slides up. Transitions don't run from display:none — the layout
+  // flush after unhiding establishes the start state.
+  u.panel.classList.remove("anim");
+  panelOff = true;
   placePanel(u.panel);
-  u.scrim.hidden = false;
   u.panel.hidden = false;
+  u.scrim.hidden = false;
+  u.scrim.classList.add("off");
+  void u.panel.offsetWidth;
+  u.panel.classList.add("anim");
+  panelOff = false;
+  placePanel(u.panel);
+  u.scrim.classList.remove("off");
+  panelAnimTimer = setTimeout(() => {
+    panelAnimTimer = null;
+    // Done sliding: repositioning writes must land instantly again.
+    u.panel.classList.remove("anim");
+  }, 300);
 }
 
 function hidePanel() {
-  if (!ui) return;
+  if (!ui || !panelOpen) return;
   panelOpen = false;
-  ui.scrim.hidden = true;
-  ui.panel.hidden = true;
+  if (panelAnimTimer) clearTimeout(panelAnimTimer);
+  ui.panel.classList.add("anim");
+  panelOff = true;
+  placePanel(ui.panel);
+  ui.scrim.classList.add("off");
+  panelAnimTimer = setTimeout(() => {
+    panelAnimTimer = null;
+    ui.panel.classList.remove("anim");
+    ui.panel.hidden = true;
+    ui.scrim.hidden = true;
+    ui.scrim.classList.remove("off");
+  }, 300);
 }
 
 function togglePanel() {

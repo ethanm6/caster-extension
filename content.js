@@ -178,7 +178,10 @@ let debugInfo = null;
 let fabCorner = "br"; // "t"/"b" + "l"/"r"
 let fabDragging = false;
 let lastFabAnchor = ""; // last applied anchoring, to skip redundant writes
+let lastPanelAnchor = "";
 let redockTimer = null;
+let scrollDir = "down"; // last vertical scroll direction
+let lastVvTop = 0;
 
 // Fixed positioning anchors to the layout viewport, which can be wider than
 // the screen (overflowing pages, pinch zoom) — everything here works in
@@ -203,17 +206,57 @@ function viewportBox() {
   };
 }
 
-// True when plain CSS corner anchoring would land off screen: the layout
-// viewport is wider than the visible one (overflowing pages) or the page is
-// pinch-zoomed. CSS anchoring is preferred whenever possible because the
-// compositor keeps it glued during scrolling — JS repositioning lags and
-// makes the button jump while the toolbar shows/hides.
-function needsVvTracking(box) {
-  return (
-    Math.abs(box.scale - 1) > 0.01 ||
-    box.left > 1 ||
-    window.innerWidth - box.width > 1
-  );
+// A fixed element only holds still on screen while the visual viewport is
+// pinned against the layout viewport edge it is anchored to. On normal
+// pages the two viewports match, so any anchoring is trivially pinned. On
+// pages whose layout viewport exceeds the screen, scrolling pins the visual
+// viewport to the layout viewport's bottom edge going down and its top edge
+// going up — so anchor to the edge matching the current direction with
+// static CSS offsets. The compositor then keeps the button glued (JS
+// chasing always lags); it only drifts briefly after a direction change.
+function vvPinned(box) {
+  const excess = window.innerHeight - box.height;
+  if (excess <= 8) return true;
+  return scrollDir === "up" ? box.top < 8 : excess - box.top < 8;
+}
+
+function anchorFab(fab, box) {
+  const s = box.scale;
+  const tf = Math.abs(s - 1) > 0.01 ? "scale(" + 1 / s + ")" : "";
+  const mx = 16 / s;
+  const my = 24 / s;
+  const h = (fab.offsetHeight || 52) / s;
+  const L = fabCorner.includes("l");
+  const T = fabCorner.includes("t");
+  const vertExcess = window.innerHeight - box.height;
+  const pinTop = vertExcess > 8 ? scrollDir === "up" : T;
+  const left = L ? (Math.max(0, box.left) + mx).toFixed(1) + "px" : "";
+  const right = L
+    ? ""
+    : (Math.max(0, window.innerWidth - box.left - box.width) + mx).toFixed(1) +
+      "px";
+  const vNear = my.toFixed(1) + "px";
+  const vFar = (box.height - h - my).toFixed(1) + "px";
+  const top = pinTop ? (T ? vNear : vFar) : "";
+  const bottom = pinTop ? "" : T ? vFar : vNear;
+  const key = [fabCorner, left, right, top, bottom, tf].join("|");
+  if (lastFabAnchor === key) return;
+  lastFabAnchor = key;
+  fab.style.transformOrigin =
+    (pinTop ? "top " : "bottom ") + (L ? "left" : "right");
+  fab.style.transform = tf;
+  fab.style.left = left;
+  fab.style.right = right;
+  fab.style.top = top;
+  fab.style.bottom = bottom;
+}
+
+function fabMisplaced(fab) {
+  if (fab.hidden) return false;
+  const box = viewportBox();
+  const p = cornerPos(fab, box);
+  const r = fab.getBoundingClientRect();
+  return Math.abs(r.left - p.left) > 2 || Math.abs(r.top - p.top) > 2;
 }
 
 function cornerPos(fab, box) {
@@ -237,84 +280,70 @@ function applyCorner(fab, animate) {
   if (animate) {
     // Glide in left/top coordinates, then settle into the final anchoring.
     lastFabAnchor = "";
-    if (!fab.style.left) {
-      const r = fab.getBoundingClientRect();
-      fab.style.left = r.left + "px";
-      fab.style.top = r.top + "px";
-      fab.style.right = "";
-      fab.style.bottom = "";
-    }
+    const r = fab.getBoundingClientRect();
+    fab.style.right = "";
+    fab.style.bottom = "";
+    fab.style.left = r.left.toFixed(1) + "px";
+    fab.style.top = r.top.toFixed(1) + "px";
+    void fab.offsetWidth; // flush so the glide starts from here
     const p = cornerPos(fab, box);
     fab.classList.add("snap");
-    fab.style.left = p.left + "px";
-    fab.style.top = p.top + "px";
+    fab.style.left = p.left.toFixed(1) + "px";
+    fab.style.top = p.top.toFixed(1) + "px";
     setTimeout(() => {
       fab.classList.remove("snap");
       applyCorner(fab, false);
     }, 250);
     return;
   }
-  if (!needsVvTracking(box)) {
-    const key = "css:" + fabCorner;
-    if (lastFabAnchor === key) return;
-    lastFabAnchor = key;
-    fab.style.transform = "";
-    fab.style.left = fabCorner.includes("l") ? "16px" : "";
-    fab.style.right = fabCorner.includes("l") ? "" : "16px";
-    fab.style.top = fabCorner.includes("t") ? "24px" : "";
-    fab.style.bottom = fabCorner.includes("t") ? "" : "24px";
+  if (vvPinned(box)) {
+    anchorFab(fab, box);
     return;
   }
+  // Mid-drift on an overflowing page: place absolutely for where the
+  // viewport sits right now; the next scroll re-anchors to an edge.
+  lastFabAnchor = "";
   const p = cornerPos(fab, box);
-  lastFabAnchor = "vv";
-  fab.style.transform =
-    Math.abs(box.scale - 1) < 0.01 ? "" : "scale(" + 1 / box.scale + ")";
   fab.style.right = "";
   fab.style.bottom = "";
-  fab.style.left = p.left + "px";
-  fab.style.top = p.top + "px";
+  fab.style.left = p.left.toFixed(1) + "px";
+  fab.style.top = p.top.toFixed(1) + "px";
 }
 
 function placePanel(panel) {
   const box = viewportBox();
-  if (!needsVvTracking(box)) {
-    panel.style.left = "0";
-    panel.style.width = "";
-    panel.style.bottom = "0";
-    panel.style.maxHeight = "";
-    panel.style.transform = "";
-    return;
-  }
   const s = box.scale;
-  panel.style.left = box.left + "px";
-  panel.style.width = box.width * s + "px";
-  panel.style.bottom = window.innerHeight - (box.top + box.height) + "px";
-  panel.style.maxHeight = box.height * s * 0.65 + "px";
+  const tf = Math.abs(s - 1) > 0.01 ? "scale(" + 1 / s + ")" : "";
+  const left = box.left.toFixed(1) + "px";
+  const width = (box.width * s).toFixed(1) + "px";
+  const bottom =
+    Math.max(0, window.innerHeight - box.top - box.height).toFixed(1) + "px";
+  const maxHeight = (box.height * s * 0.65).toFixed(0) + "px";
+  const key = [left, width, bottom, maxHeight, tf].join("|");
+  if (lastPanelAnchor === key) return;
+  lastPanelAnchor = key;
+  panel.style.left = left;
+  panel.style.width = width;
+  panel.style.bottom = bottom;
+  panel.style.maxHeight = maxHeight;
   panel.style.transformOrigin = "bottom left";
-  panel.style.transform = s === 1 ? "" : "scale(" + 1 / s + ")";
+  panel.style.transform = tf;
 }
 
 function repositionUi() {
   if (!ui || fabDragging) return;
   const box = viewportBox();
-  if (!needsVvTracking(box)) {
-    if (redockTimer) {
-      clearTimeout(redockTimer);
-      redockTimer = null;
-    }
-    applyCorner(ui.fab, false);
-    if (panelOpen) placePanel(ui.panel);
-    return;
-  }
-  // Chasing the visual viewport on every event lags the compositor and
-  // makes the button swim; let it drift with the page while scrolling and
-  // glide back to its corner once things settle.
+  if (box.top - lastVvTop > 1) scrollDir = "down";
+  else if (lastVvTop - box.top > 1) scrollDir = "up";
+  lastVvTop = box.top;
+  anchorFab(ui.fab, box);
+  if (panelOpen) placePanel(ui.panel);
+  // A stop mid-drift can leave the button away from its corner: glide back.
   if (redockTimer) clearTimeout(redockTimer);
   redockTimer = setTimeout(() => {
     redockTimer = null;
     if (!ui || fabDragging) return;
-    applyCorner(ui.fab, true);
-    if (panelOpen) placePanel(ui.panel);
+    if (fabMisplaced(ui.fab)) applyCorner(ui.fab, true);
   }, 150);
 }
 
@@ -529,7 +558,24 @@ function renderList() {
   if (debugOpen) {
     const box = document.createElement("div");
     box.className = "debug";
-    const lines = ["dom(top): " + lastScanSummary];
+    const vp = viewportBox();
+    const lines = [
+      "vp: win=" +
+        window.innerWidth +
+        "×" +
+        window.innerHeight +
+        " vis=" +
+        Math.round(vp.width) +
+        "×" +
+        Math.round(vp.height) +
+        " off=" +
+        Math.round(vp.left) +
+        "," +
+        Math.round(vp.top) +
+        " s=" +
+        vp.scale.toFixed(2),
+      "dom(top): " + lastScanSummary,
+    ];
     if (debugInfo) {
       lines.push("— network (this tab) —");
       lines.push(...(debugInfo.tabLog.length ? debugInfo.tabLog : ["(empty)"]));

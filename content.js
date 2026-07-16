@@ -224,6 +224,7 @@ let fabDismissed = false; // dragged onto the × — hidden until navigation
 let lastFabAnchor = ""; // last applied anchoring, to skip redundant writes
 let lastPanelAnchor = "";
 let redockTimer = null;
+let lastMoveTime = 0; // last scroll/resize event, for the redock debounce
 let scrollDir = "down"; // last vertical scroll direction
 let lastVvTop = 0;
 let lastPinTop = null; // vertical edge last anchored to, for duck-on-flip
@@ -441,14 +442,23 @@ function repositionUi() {
   if (ui.fab.classList.contains("ducked") && vvPinned(box))
     ui.fab.classList.remove("ducked");
   if (panelOpen) placePanel(ui.panel);
-  // A stop mid-drift can leave the button away from its corner: glide back.
-  if (redockTimer) clearTimeout(redockTimer);
-  redockTimer = setTimeout(() => {
-    redockTimer = null;
-    if (!ui || fabDragging) return;
-    if (fabMisplaced(ui.fab)) applyCorner(ui.fab, true);
-    else ui.fab.classList.remove("ducked");
-  }, 150);
+  // A stop mid-drift can leave the button away from its corner: glide back
+  // once events go quiet. Timestamp debounce — one live timer that re-arms
+  // for the remainder, instead of clear+create on every scroll event.
+  lastMoveTime = performance.now();
+  if (!redockTimer) redockTimer = setTimeout(checkRedock, 150);
+}
+
+function checkRedock() {
+  const remaining = 150 - (performance.now() - lastMoveTime);
+  if (remaining > 16) {
+    redockTimer = setTimeout(checkRedock, remaining);
+    return;
+  }
+  redockTimer = null;
+  if (!ui || fabDragging) return;
+  if (fabMisplaced(ui.fab)) applyCorner(ui.fab, true);
+  else ui.fab.classList.remove("ducked");
 }
 
 // Drag-to-dismiss target: an × bubble at the bottom middle of the screen,

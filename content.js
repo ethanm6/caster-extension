@@ -101,6 +101,7 @@ const UI_CSS = `
   box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.35);
   font-size: 15px;
 }
+.panel[hidden] { display: none; }
 .head {
   flex: none;
   display: flex; justify-content: space-between; align-items: center;

@@ -94,18 +94,19 @@ const UI_CSS = `
 }
 .panel {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 2147483647;
-  max-height: 65vh; overflow-y: auto;
+  max-height: 65vh;
+  display: flex; flex-direction: column;
   background: #fdfdff; color: #1a1a2e;
   border-radius: 16px 16px 0 0;
   box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.35);
   font-size: 15px;
 }
 .head {
+  flex: none;
   display: flex; justify-content: space-between; align-items: center;
   padding: 14px 16px 8px; font-weight: 600;
-  position: sticky; top: 0; background: inherit;
-  border-radius: 16px 16px 0 0;
 }
+.list { overflow-y: auto; min-height: 0; }
 .close {
   border: none; background: none; color: inherit;
   font-size: 22px; line-height: 1; padding: 4px 10px; cursor: pointer;
@@ -284,6 +285,7 @@ function ensureUi() {
   head.append(heading, close);
 
   const list = document.createElement("div");
+  list.className = "list";
   panel.append(head, list);
   shadow.append(fab, scrim, panel);
   document.documentElement.appendChild(host);
@@ -314,7 +316,9 @@ function fmtSize(bytes) {
 function renderList() {
   const { list } = ensureUi();
   list.textContent = "";
-  for (const v of videos) {
+  // Largest files first; entries without a known size sink to the bottom.
+  const sorted = [...videos].sort((a, b) => (b.size || 0) - (a.size || 0));
+  for (const v of sorted) {
     const row = document.createElement("button");
     row.className = "row";
 

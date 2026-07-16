@@ -124,9 +124,25 @@ const UI_CSS = `
 .list { overflow-y: auto; min-height: 0; overscroll-behavior: contain; touch-action: none; }
 .close {
   border: none; background: none; color: inherit;
-  font-size: 22px; line-height: 1; padding: 4px 10px; cursor: pointer;
+  font-size: 30px; line-height: 1; padding: 6px 14px; cursor: pointer;
 }
-.info { font-size: 16px; opacity: 0.7; }
+.info { font-size: 23px; opacity: 0.7; }
+.dismiss {
+  position: fixed; z-index: 2147483646;
+  width: 56px; height: 56px; border-radius: 50%;
+  background: rgba(30, 30, 30, 0.85); color: #fff;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px; line-height: 1;
+  opacity: 0; pointer-events: none;
+  transform: scale(calc(var(--vs, 1) * 0.5));
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.dismiss.show { opacity: 1; transform: scale(var(--vs, 1)); }
+.dismiss.hot {
+  background: #d32f2f;
+  transform: scale(calc(var(--vs, 1) * 1.25));
+}
 .empty { padding: 4px 16px 16px; opacity: 0.7; }
 .debug {
   padding: 10px 16px 16px;
@@ -184,6 +200,7 @@ let debugOpen = false;
 let debugInfo = null;
 let fabCorner = "br"; // "t"/"b" + "l"/"r"
 let fabDragging = false;
+let fabDismissed = false; // dragged onto the × — hidden until navigation
 let lastFabAnchor = ""; // last applied anchoring, to skip redundant writes
 let lastPanelAnchor = "";
 let redockTimer = null;
@@ -390,6 +407,22 @@ function repositionUi() {
   }, 150);
 }
 
+// Drag-to-dismiss target: an × bubble at the bottom middle of the screen,
+// shown only while the button is being dragged. Returns its center and
+// magnet radius in layout coordinates for the drag loop.
+function showDismiss() {
+  const d = ui.dismiss;
+  const box = viewportBox();
+  const s = box.scale;
+  d.style.setProperty("--vs", String(Math.round(100 / s) / 100));
+  const cx = box.left + box.width / 2;
+  const cy = box.top + box.height - 52 / s;
+  d.style.left = (cx - 28).toFixed(1) + "px";
+  d.style.top = (cy - 28).toFixed(1) + "px";
+  d.classList.add("show");
+  return { cx, cy, r: 60 / s };
+}
+
 function makeDraggable(fab) {
   let pid = null;
   let moved = false;
@@ -397,6 +430,8 @@ function makeDraggable(fab) {
   let startY = 0;
   let startLeft = 0;
   let startTop = 0;
+  let dismissTarget = null;
+  let dismissHot = false;
 
   fab.addEventListener("pointerdown", (e) => {
     if (!e.isPrimary) return;
@@ -420,7 +455,11 @@ function makeDraggable(fab) {
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
     if (!moved && Math.hypot(dx, dy) < 8) return; // still a tap
-    moved = true;
+    if (!moved) {
+      moved = true;
+      dismissTarget = showDismiss();
+      dismissHot = false;
+    }
     lastFabAnchor = "";
     fab.classList.remove("snap");
     fab.style.right = "";
@@ -429,15 +468,39 @@ function makeDraggable(fab) {
     const r = fab.getBoundingClientRect();
     const maxL = box.left + box.width - r.width;
     const maxT = box.top + box.height - r.height;
-    fab.style.left = Math.min(Math.max(startLeft + dx, box.left), maxL) + "px";
-    fab.style.top = Math.min(Math.max(startTop + dy, box.top), maxT) + "px";
+    let nl = Math.min(Math.max(startLeft + dx, box.left), maxL);
+    let nt = Math.min(Math.max(startTop + dy, box.top), maxT);
+    if (dismissTarget) {
+      dismissHot =
+        Math.hypot(
+          nl + r.width / 2 - dismissTarget.cx,
+          nt + r.height / 2 - dismissTarget.cy
+        ) < dismissTarget.r;
+      ui.dismiss.classList.toggle("hot", dismissHot);
+      if (dismissHot) {
+        // Magnetized: the button rides the × instead of the finger.
+        nl = dismissTarget.cx - r.width / 2;
+        nt = dismissTarget.cy - r.height / 2;
+      }
+    }
+    fab.style.left = nl + "px";
+    fab.style.top = nt + "px";
   });
 
   const finish = (e) => {
     if (pid === null || e.pointerId !== pid) return;
     pid = null;
     fabDragging = false;
+    const wasHot = dismissHot;
+    dismissTarget = null;
+    dismissHot = false;
+    if (ui) ui.dismiss.classList.remove("show", "hot");
     if (!moved) return;
+    if (wasHot) {
+      fabDismissed = true;
+      fab.hidden = true;
+      return;
+    }
     const r = fab.getBoundingClientRect();
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
@@ -562,6 +625,10 @@ function ensureUi() {
   fab.appendChild(badge);
   makeDraggable(fab);
 
+  const dismiss = document.createElement("div");
+  dismiss.className = "dismiss";
+  dismiss.textContent = "×";
+
   const scrim = document.createElement("div");
   scrim.className = "scrim";
   scrim.hidden = true;
@@ -593,10 +660,10 @@ function ensureUi() {
   list.className = "list";
   makeListScroller(list);
   panel.append(head, list);
-  shadow.append(fab, scrim, panel);
+  shadow.append(dismiss, fab, scrim, panel);
   document.documentElement.appendChild(host);
 
-  ui = { host, fab, badge, scrim, panel, list };
+  ui = { host, fab, badge, dismiss, scrim, panel, list };
   applyCorner(fab, false);
   return ui;
 }
@@ -730,7 +797,7 @@ function updateUi() {
   if (!videos.length && !ui) return;
   const { fab, badge } = ensureUi();
   const wasHidden = fab.hidden;
-  fab.hidden = videos.length === 0;
+  fab.hidden = videos.length === 0 || fabDismissed;
   if (wasHidden && !fab.hidden) applyCorner(fab, false);
   badge.textContent = String(videos.length);
   if (panelOpen) renderList();

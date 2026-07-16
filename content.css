@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Shield the shadow host from page styling; everything else lives in the shadow root. */
 caster-ext-host {
   all: initial !important;

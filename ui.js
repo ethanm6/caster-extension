@@ -2,94 +2,14 @@
 "use strict";
 
 /*
- * Runs in every frame: scans for <video> elements and reports castable
- * (http/https) sources to the background store.
+ * Top frame only: the floating cast button that appears when the page has
+ * videos, and the bottom-sheet panel to pick one. Tapping a row navigates
+ * to an intent:// URI that launches the Caster app.
  *
- * The top frame additionally owns the UI: a floating cast button that
- * appears when the page has videos, and a bottom-sheet panel to pick one.
- * Tapping a row navigates to an intent:// URI that launches the Caster app.
+ * Shares the frame's content-script scope with scanner.js, which loads
+ * first (in every frame) and owns extEnabled, pushVideos(),
+ * lastScanSummary and the onEnabledChange hook this file registers.
  */
-
-const IS_TOP = window.top === window;
-
-// ---------- scanner (all frames) ----------
-
-let extEnabled = true; // options-page switch; off = no scanning, fab hidden
-let lastPushed = "";
-let scanTimer = null;
-let lastScanSummary = "not scanned yet";
-
-function collectVideos() {
-  const out = [];
-  const els = document.querySelectorAll("video");
-  const notes = [];
-  for (const v of els) {
-    let src = v.currentSrc || v.src || "";
-    notes.push((src ? src.split(":")[0] : "nosrc") + "/rs" + v.readyState);
-    if (!/^https?:/i.test(src)) {
-      src = "";
-      for (const s of v.querySelectorAll("source")) {
-        if (/^https?:/i.test(s.src)) {
-          src = s.src;
-          break;
-        }
-      }
-    }
-    if (!src) continue; // blob:/MSE sources aren't castable; sniffer covers those
-    out.push({
-      url: src,
-      width: v.videoWidth || 0,
-      height: v.videoHeight || 0,
-      duration: Number.isFinite(v.duration) ? v.duration : 0,
-      title: document.title || "",
-    });
-  }
-  lastScanSummary =
-    els.length + " <video>" + (notes.length ? ": " + notes.join(", ") : "");
-  return out;
-}
-
-function pushVideos() {
-  if (!extEnabled) return;
-  const videos = collectVideos();
-  const key = JSON.stringify(videos);
-  if (key === lastPushed) return;
-  lastPushed = key;
-  if (videos.length) {
-    browser.runtime.sendMessage({ type: "dom-videos", videos }).catch(() => {});
-  }
-}
-
-function scheduleScan() {
-  if (scanTimer) return;
-  scanTimer = setTimeout(() => {
-    scanTimer = null;
-    pushVideos();
-  }, 500);
-}
-
-// Media events don't bubble — capture catches dynamically added players.
-for (const ev of ["loadedmetadata", "durationchange", "play"]) {
-  document.addEventListener(ev, scheduleScan, true);
-}
-
-browser.storage.local
-  .get("enabled")
-  .then((r) => {
-    extEnabled = r.enabled !== false;
-    if (extEnabled) pushVideos();
-    else if (IS_TOP && ui) updateUi();
-  })
-  .catch(() => pushVideos());
-
-browser.storage.onChanged.addListener((changes, area) => {
-  if (area !== "local" || !changes.enabled) return;
-  extEnabled = changes.enabled.newValue !== false;
-  if (extEnabled) {
-    lastPushed = ""; // scanning was frozen while off — rescan and re-report
-    scheduleScan();
-  }
-});
 
 // ---------- UI (top frame only) ----------
 
@@ -725,6 +645,15 @@ function ensureUi() {
 
   ui = { host, fab, badge, dismiss, scrim, panel, list };
   applyCorner(fab, false);
+
+  // Only track viewport changes once there's something to reposition;
+  // video-less pages never pay for these listeners.
+  window.addEventListener("resize", repositionUi);
+  window.addEventListener("scroll", repositionUi, { passive: true });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", repositionUi);
+    window.visualViewport.addEventListener("scroll", repositionUi);
+  }
   return ui;
 }
 
@@ -933,47 +862,36 @@ function castVideo(v) {
   window.location.href = intent;
 }
 
-if (IS_TOP) {
-  browser.runtime.onMessage.addListener((msg) => {
-    if (msg.type === "videos") {
-      videos = msg.videos || [];
-      updateUi();
-    } else if (msg.type === "toggle-panel") {
-      togglePanel();
-    }
-  });
-
-  // Sniffing may have started before this script loaded.
-  browser.runtime
-    .sendMessage({ type: "get-findings" })
-    .then((found) => {
-      videos = found || [];
-      updateUi();
-    })
-    .catch(() => {});
-
-  browser.storage.local
-    .get("fabCorner")
-    .then((r) => {
-      if (/^[tb][lr]$/.test(r.fabCorner || "")) {
-        fabCorner = r.fabCorner;
-        repositionUi();
-      }
-    })
-    .catch(() => {});
-
-  // The all-frames listener above keeps extEnabled current; this one only
-  // reacts to the flip in the UI.
-  browser.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || !changes.enabled) return;
-    if (!extEnabled) hidePanel();
+browser.runtime.onMessage.addListener((msg) => {
+  if (msg.type === "videos") {
+    videos = msg.videos || [];
     updateUi();
-  });
-
-  window.addEventListener("resize", repositionUi);
-  window.addEventListener("scroll", repositionUi, { passive: true });
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", repositionUi);
-    window.visualViewport.addEventListener("scroll", repositionUi);
+  } else if (msg.type === "toggle-panel") {
+    togglePanel();
   }
-}
+});
+
+// Sniffing may have started before this script loaded.
+browser.runtime
+  .sendMessage({ type: "get-findings" })
+  .then((found) => {
+    videos = found || [];
+    updateUi();
+  })
+  .catch(() => {});
+
+browser.storage.local
+  .get("fabCorner")
+  .then((r) => {
+    if (/^[tb][lr]$/.test(r.fabCorner || "")) {
+      fabCorner = r.fabCorner;
+      repositionUi();
+    }
+  })
+  .catch(() => {});
+
+// scanner.js keeps extEnabled current; this hook reacts to the flip in the UI.
+onEnabledChange = () => {
+  if (!extEnabled) hidePanel();
+  updateUi();
+};

@@ -642,7 +642,13 @@ function ensureUi() {
   const fab = document.createElement("button");
   fab.className = "fab";
   fab.title = "Cast videos on this page";
-  fab.innerHTML = CAST_GLYPH;
+  // Parsed, not innerHTML-assigned: AMO's linter flags innerHTML even for
+  // static markup like the glyph.
+  const glyphDoc = new DOMParser().parseFromString(
+    CAST_GLYPH,
+    "image/svg+xml"
+  );
+  fab.appendChild(document.importNode(glyphDoc.documentElement, true));
   fab.hidden = true;
   const badge = document.createElement("span");
   badge.className = "badge";

@@ -388,17 +388,12 @@ function fmtSize(bytes) {
   return Math.max(1, Math.round(bytes / 1e3)) + " kB";
 }
 
-// Duration and size weigh equally: rank each dimension separately (unknowns
-// last) and order by combined rank, so a video strong in either dimension
-// still floats up — HLS entries often lack size, plain files lack duration.
+// Longest first; size breaks duration ties (unknowns count as 0).
 function sortVideos(list) {
-  const rank = new Map(list.map((v) => [v, 0]));
-  for (const key of ["duration", "size"]) {
-    [...list]
-      .sort((a, b) => (b[key] || 0) - (a[key] || 0))
-      .forEach((v, i) => rank.set(v, rank.get(v) + i));
-  }
-  return [...list].sort((a, b) => rank.get(a) - rank.get(b));
+  return [...list].sort(
+    (a, b) =>
+      (b.duration || 0) - (a.duration || 0) || (b.size || 0) - (a.size || 0)
+  );
 }
 
 function renderList() {

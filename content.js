@@ -363,6 +363,30 @@ function applyCorner(fab, animate) {
   fab.classList.remove("ducked");
 }
 
+// Detection entrance: slide in from the top or bottom edge the corner
+// sits on, then settle into normal anchoring.
+function slideInFab(fab) {
+  const box = viewportBox();
+  const p = cornerPos(fab, box);
+  const h = (fab.offsetHeight || 52) / box.scale;
+  lastFabAnchor = "";
+  fab.classList.remove("snap");
+  fab.style.right = "";
+  fab.style.bottom = "";
+  const offT = fabCorner.includes("t")
+    ? box.top - h - 8
+    : box.top + box.height + 8;
+  fab.style.left = p.left.toFixed(1) + "px";
+  fab.style.top = offT.toFixed(1) + "px";
+  void fab.offsetWidth; // flush so the glide starts off screen
+  fab.classList.add("snap");
+  fab.style.top = p.top.toFixed(1) + "px";
+  setTimeout(() => {
+    fab.classList.remove("snap");
+    applyCorner(fab, false);
+  }, 250);
+}
+
 function placePanel(panel) {
   const box = viewportBox();
   const s = box.scale;
@@ -798,7 +822,7 @@ function updateUi() {
   const { fab, badge } = ensureUi();
   const wasHidden = fab.hidden;
   fab.hidden = videos.length === 0 || fabDismissed;
-  if (wasHidden && !fab.hidden) applyCorner(fab, false);
+  if (wasHidden && !fab.hidden) slideInFab(fab);
   badge.textContent = String(videos.length);
   if (panelOpen) renderList();
 }

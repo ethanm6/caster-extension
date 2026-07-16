@@ -84,6 +84,7 @@ const UI_CSS = `
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
   touch-action: none; user-select: none;
+  transform-origin: top left;
 }
 .fab[hidden] { display: none; }
 .fab.snap { transition: left 0.2s ease, top 0.2s ease; }
@@ -174,19 +175,66 @@ let debugOpen = false;
 let debugInfo = null;
 let fabCorner = "br"; // "t"/"b" + "l"/"r"
 
+// Fixed positioning anchors to the layout viewport, which can be wider than
+// the screen (overflowing pages, pinch zoom) — everything here works in
+// visual-viewport space so the UI stays on screen at a constant size.
+function viewportBox() {
+  const vv = window.visualViewport;
+  if (vv) {
+    return {
+      left: vv.offsetLeft,
+      top: vv.offsetTop,
+      width: vv.width,
+      height: vv.height,
+      scale: vv.scale || 1,
+    };
+  }
+  return {
+    left: 0,
+    top: 0,
+    width: window.innerWidth,
+    height: window.innerHeight,
+    scale: 1,
+  };
+}
+
 function applyCorner(fab, animate) {
-  const w = fab.offsetWidth || 52;
-  const h = fab.offsetHeight || 52;
-  const mx = 16;
-  const my = 24;
-  const left = fabCorner.includes("l") ? mx : window.innerWidth - w - mx;
-  const top = fabCorner.includes("t") ? my : window.innerHeight - h - my;
+  const box = viewportBox();
+  const s = box.scale;
+  fab.style.transform = s === 1 ? "" : "scale(" + 1 / s + ")";
+  const w = (fab.offsetWidth || 52) / s;
+  const h = (fab.offsetHeight || 52) / s;
+  const mx = 16 / s;
+  const my = 24 / s;
+  const left = fabCorner.includes("l")
+    ? box.left + mx
+    : box.left + box.width - w - mx;
+  const top = fabCorner.includes("t")
+    ? box.top + my
+    : box.top + box.height - h - my;
   if (animate) {
     fab.classList.add("snap");
     setTimeout(() => fab.classList.remove("snap"), 250);
   }
   fab.style.left = left + "px";
   fab.style.top = top + "px";
+}
+
+function placePanel(panel) {
+  const box = viewportBox();
+  const s = box.scale;
+  panel.style.left = box.left + "px";
+  panel.style.width = box.width * s + "px";
+  panel.style.bottom = window.innerHeight - (box.top + box.height) + "px";
+  panel.style.maxHeight = box.height * s * 0.65 + "px";
+  panel.style.transformOrigin = "bottom left";
+  panel.style.transform = s === 1 ? "" : "scale(" + 1 / s + ")";
+}
+
+function repositionUi() {
+  if (!ui) return;
+  applyCorner(ui.fab, false);
+  if (panelOpen) placePanel(ui.panel);
 }
 
 function makeDraggable(fab) {
@@ -220,10 +268,12 @@ function makeDraggable(fab) {
     if (!moved && Math.hypot(dx, dy) < 8) return; // still a tap
     moved = true;
     fab.classList.remove("snap");
-    const maxL = window.innerWidth - fab.offsetWidth;
-    const maxT = window.innerHeight - fab.offsetHeight;
-    fab.style.left = Math.min(Math.max(startLeft + dx, 0), maxL) + "px";
-    fab.style.top = Math.min(Math.max(startTop + dy, 0), maxT) + "px";
+    const box = viewportBox();
+    const r = fab.getBoundingClientRect();
+    const maxL = box.left + box.width - r.width;
+    const maxT = box.top + box.height - r.height;
+    fab.style.left = Math.min(Math.max(startLeft + dx, box.left), maxL) + "px";
+    fab.style.top = Math.min(Math.max(startTop + dy, box.top), maxT) + "px";
   });
 
   const finish = (e) => {
@@ -233,9 +283,10 @@ function makeDraggable(fab) {
     const r = fab.getBoundingClientRect();
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
+    const box = viewportBox();
     fabCorner =
-      (cy < window.innerHeight / 2 ? "t" : "b") +
-      (cx < window.innerWidth / 2 ? "l" : "r");
+      (cy < box.top + box.height / 2 ? "t" : "b") +
+      (cx < box.left + box.width / 2 ? "l" : "r");
     applyCorner(fab, true);
     browser.storage.local.set({ fabCorner }).catch(() => {});
   };
@@ -432,6 +483,7 @@ function showPanel() {
   const u = ensureUi();
   renderList();
   panelOpen = true;
+  placePanel(u.panel);
   u.scrim.hidden = false;
   u.panel.hidden = false;
 }
@@ -494,12 +546,14 @@ if (IS_TOP) {
     .then((r) => {
       if (r && /^[tb][lr]$/.test(r.fabCorner || "")) {
         fabCorner = r.fabCorner;
-        if (ui) applyCorner(ui.fab, false);
+        repositionUi();
       }
     })
     .catch(() => {});
 
-  window.addEventListener("resize", () => {
-    if (ui) applyCorner(ui.fab, false);
-  });
+  window.addEventListener("resize", repositionUi);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", repositionUi);
+    window.visualViewport.addEventListener("scroll", repositionUi);
+  }
 }

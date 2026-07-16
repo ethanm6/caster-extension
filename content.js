@@ -85,9 +85,11 @@ const UI_CSS = `
   cursor: pointer;
   touch-action: none; user-select: none;
   transform-origin: top left;
+  transition: opacity 0.15s ease;
 }
 .fab[hidden] { display: none; }
-.fab.snap { transition: left 0.2s ease, top 0.2s ease; }
+.fab.snap { transition: left 0.2s ease, top 0.2s ease, opacity 0.15s ease; }
+.fab.ducked { opacity: 0; pointer-events: none; }
 .fab svg { width: 30px; height: 24px; display: block; }
 .badge {
   position: absolute; top: -4px; right: -4px;
@@ -182,6 +184,7 @@ let lastPanelAnchor = "";
 let redockTimer = null;
 let scrollDir = "down"; // last vertical scroll direction
 let lastVvTop = 0;
+let lastPinTop = null; // vertical edge last anchored to, for duck-on-flip
 
 // Fixed positioning anchors to the layout viewport, which can be wider than
 // the screen (overflowing pages, pinch zoom) — everything here works in
@@ -252,6 +255,11 @@ function anchorFab(fab, box) {
   const key = [fabCorner, pinTop, tf].join("|");
   if (lastFabAnchor === key) return;
   lastFabAnchor = key;
+  // Switching edges teleports the button (no static anchor can hold the
+  // corner mid-transition): fade it out and fade back in once re-pinned.
+  if (lastPinTop !== null && pinTop !== lastPinTop && !fab.hidden)
+    fab.classList.add("ducked");
+  lastPinTop = pinTop;
   const mx = 16 / s;
   const my = 24 / s;
   const h = (fab.offsetHeight || 52) / s;
@@ -320,16 +328,17 @@ function applyCorner(fab, animate) {
   }
   if (vvPinned(box)) {
     anchorFab(fab, box);
-    return;
+  } else {
+    // Mid-drift on an overflowing page: place absolutely for where the
+    // viewport sits right now; the next scroll re-anchors to an edge.
+    lastFabAnchor = "";
+    const p = cornerPos(fab, box);
+    fab.style.right = "";
+    fab.style.bottom = "";
+    fab.style.left = p.left.toFixed(1) + "px";
+    fab.style.top = p.top.toFixed(1) + "px";
   }
-  // Mid-drift on an overflowing page: place absolutely for where the
-  // viewport sits right now; the next scroll re-anchors to an edge.
-  lastFabAnchor = "";
-  const p = cornerPos(fab, box);
-  fab.style.right = "";
-  fab.style.bottom = "";
-  fab.style.left = p.left.toFixed(1) + "px";
-  fab.style.top = p.top.toFixed(1) + "px";
+  fab.classList.remove("ducked");
 }
 
 function placePanel(panel) {
@@ -359,6 +368,8 @@ function repositionUi() {
   else if (lastVvTop - box.top > 4) scrollDir = "up";
   lastVvTop = box.top;
   anchorFab(ui.fab, box);
+  if (ui.fab.classList.contains("ducked") && vvPinned(box))
+    ui.fab.classList.remove("ducked");
   if (panelOpen) placePanel(ui.panel);
   // A stop mid-drift can leave the button away from its corner: glide back.
   if (redockTimer) clearTimeout(redockTimer);
@@ -366,6 +377,7 @@ function repositionUi() {
     redockTimer = null;
     if (!ui || fabDragging) return;
     if (fabMisplaced(ui.fab)) applyCorner(ui.fab, true);
+    else ui.fab.classList.remove("ducked");
   }, 150);
 }
 

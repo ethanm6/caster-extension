@@ -18,7 +18,7 @@ A Firefox for Android extension that finds videos on the page you're viewing and
 Not yet listed on addons.mozilla.org. Until then, build the package yourself:
 
 ```bash
-zip -r -FS caster-extension.xpi manifest.json background.js content.js content.css icons LICENSE
+zip -r -FS caster-extension.xpi manifest.json background.js content.js content.css options.html options.js icons LICENSE
 ```
 
 Release Firefox for Android only installs signed extensions, so load the xpi in Firefox Nightly: Settings → Extensions → Install extension from file.

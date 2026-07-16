@@ -52,6 +52,7 @@ const UI_CSS = `
   border-radius: 28px 28px 0 0;
   box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.35);
   font-size: 15px;
+  padding-bottom: 3px; /* covers the overhang placePanel adds */
 }
 .panel[hidden] { display: none; }
 .panel.anim { transition: transform 0.25s ease; }
@@ -338,8 +339,13 @@ function placePanel(panel) {
   const tf = scale && off ? scale + " " + off : scale || off;
   const left = box.left.toFixed(1) + "px";
   const width = (box.width * s).toFixed(1) + "px";
+  // innerHeight is integer CSS px but the visual viewport height is
+  // fractional, so a "flush" bottom leaves a sliver of page visible under
+  // the panel. Overhang the edge by 3px (matched by the panel's bottom
+  // padding); anything past the viewport is clipped, so it never shows.
   const bottom =
-    Math.max(0, window.innerHeight - box.top - box.height).toFixed(1) + "px";
+    (Math.max(0, window.innerHeight - box.top - box.height) - 3).toFixed(1) +
+    "px";
   const maxHeight = (box.height * s * 0.65).toFixed(0) + "px";
   const key = [left, width, bottom, maxHeight, tf].join("|");
   if (lastPanelAnchor === key) return;

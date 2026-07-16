@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Caster",
-  "version": "0.2.24",
+  "version": "0.2.25",
   "description": "Finds videos on the page and casts them with the Caster app.",
   "icons": {
     "48": "icons/icon.svg",
@@ -37,6 +37,9 @@
   "browser_action": {
     "default_icon": "icons/icon.svg",
     "default_title": "Cast videos on this page"
+  },
+  "options_ui": {
+    "page": "options.html"
   },
   "browser_specific_settings": {
     "gecko": {

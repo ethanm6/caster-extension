@@ -17,6 +17,20 @@
 const MAX_ENTRIES = 30;
 const MAX_MANIFEST_BYTES = 10 * 1024 * 1024;
 
+// Options-page on/off switch. Off = stop sniffing network traffic; existing
+// findings are kept and the content script hides the in-page UI.
+let extEnabled = true;
+browser.storage.local
+  .get("enabled")
+  .then((r) => {
+    extEnabled = !r || r.enabled !== false;
+  })
+  .catch(() => {});
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.enabled)
+    extEnabled = changes.enabled.newValue !== false;
+});
+
 const MANIFEST_TYPES = {
   "application/x-mpegurl": "hls",
   "application/vnd.apple.mpegurl": "hls",
@@ -208,6 +222,7 @@ function makeRoom(store) {
 
 browser.webRequest.onResponseStarted.addListener(
   (details) => {
+    if (!extEnabled) return;
     const ct = headerValue(details.responseHeaders, "content-type");
     const kind = classifyByContentType(ct) || classifyByUrl(details.url);
     if (details.tabId < 0) {

@@ -110,7 +110,7 @@ const UI_CSS = `
   max-height: 65vh;
   display: flex; flex-direction: column;
   background: #fdfdff; color: #1a1a2e;
-  border-radius: 16px 16px 0 0;
+  border-radius: 28px 28px 0 0;
   box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.35);
   font-size: 15px;
 }
@@ -194,6 +194,7 @@ const KIND_LABELS = {
 
 let ui = null;
 let videos = [];
+let extEnabled = true; // options-page switch; off = keep the fab hidden
 let panelOpen = false;
 let panelOff = true; // panel is translated off-screen below the viewport
 let panelAnimTimer = null;
@@ -828,7 +829,7 @@ function updateUi() {
   if (!videos.length && !ui) return;
   const { fab, badge } = ensureUi();
   const wasHidden = fab.hidden;
-  fab.hidden = videos.length === 0 || fabDismissed;
+  fab.hidden = videos.length === 0 || fabDismissed || !extEnabled;
   if (wasHidden && !fab.hidden) slideInFab(fab);
   badge.textContent = String(videos.length);
   if (panelOpen) renderList();
@@ -924,14 +925,23 @@ if (IS_TOP) {
     .catch(() => {});
 
   browser.storage.local
-    .get("fabCorner")
+    .get(["fabCorner", "enabled"])
     .then((r) => {
+      extEnabled = !r || r.enabled !== false;
       if (r && /^[tb][lr]$/.test(r.fabCorner || "")) {
         fabCorner = r.fabCorner;
         repositionUi();
       }
+      if (ui) updateUi();
     })
     .catch(() => {});
+
+  browser.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes.enabled) return;
+    extEnabled = changes.enabled.newValue !== false;
+    if (!extEnabled) hidePanel();
+    updateUi();
+  });
 
   window.addEventListener("resize", repositionUi);
   window.addEventListener("scroll", repositionUi, { passive: true });

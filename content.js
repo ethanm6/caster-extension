@@ -98,6 +98,7 @@ const UI_CSS = `
 .scrim {
   position: fixed; inset: 0; z-index: 2147483646;
   background: rgba(0, 0, 0, 0.4);
+  touch-action: none;
 }
 .panel {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 2147483647;
@@ -113,8 +114,9 @@ const UI_CSS = `
   flex: none;
   display: flex; justify-content: space-between; align-items: center;
   padding: 14px 16px 8px; font-weight: 600;
+  touch-action: none;
 }
-.list { overflow-y: auto; min-height: 0; }
+.list { overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
 .close {
   border: none; background: none; color: inherit;
   font-size: 22px; line-height: 1; padding: 4px 10px; cursor: pointer;
@@ -198,30 +200,74 @@ function viewportBox() {
   };
 }
 
-function applyCorner(fab, animate) {
-  const box = viewportBox();
+// True when plain CSS corner anchoring would land off screen: the layout
+// viewport is wider than the visible one (overflowing pages) or the page is
+// pinch-zoomed. CSS anchoring is preferred whenever possible because the
+// compositor keeps it glued during scrolling — JS repositioning lags and
+// makes the button jump while the toolbar shows/hides.
+function needsVvTracking(box) {
+  return (
+    box.scale !== 1 || box.left > 0 || window.innerWidth - box.width > 1
+  );
+}
+
+function cornerPos(fab, box) {
   const s = box.scale;
-  fab.style.transform = s === 1 ? "" : "scale(" + 1 / s + ")";
   const w = (fab.offsetWidth || 52) / s;
   const h = (fab.offsetHeight || 52) / s;
   const mx = 16 / s;
   const my = 24 / s;
-  const left = fabCorner.includes("l")
-    ? box.left + mx
-    : box.left + box.width - w - mx;
-  const top = fabCorner.includes("t")
-    ? box.top + my
-    : box.top + box.height - h - my;
+  return {
+    left: fabCorner.includes("l")
+      ? box.left + mx
+      : box.left + box.width - w - mx,
+    top: fabCorner.includes("t")
+      ? box.top + my
+      : box.top + box.height - h - my,
+  };
+}
+
+function applyCorner(fab, animate) {
+  const box = viewportBox();
   if (animate) {
+    // Snap in left/top coordinates, then settle into the final anchoring.
+    const p = cornerPos(fab, box);
     fab.classList.add("snap");
-    setTimeout(() => fab.classList.remove("snap"), 250);
+    fab.style.left = p.left + "px";
+    fab.style.top = p.top + "px";
+    setTimeout(() => {
+      fab.classList.remove("snap");
+      applyCorner(fab, false);
+    }, 250);
+    return;
   }
-  fab.style.left = left + "px";
-  fab.style.top = top + "px";
+  if (!needsVvTracking(box)) {
+    fab.style.transform = "";
+    fab.style.left = fabCorner.includes("l") ? "16px" : "";
+    fab.style.right = fabCorner.includes("l") ? "" : "16px";
+    fab.style.top = fabCorner.includes("t") ? "24px" : "";
+    fab.style.bottom = fabCorner.includes("t") ? "" : "24px";
+    return;
+  }
+  const p = cornerPos(fab, box);
+  fab.style.transform =
+    box.scale === 1 ? "" : "scale(" + 1 / box.scale + ")";
+  fab.style.right = "";
+  fab.style.bottom = "";
+  fab.style.left = p.left + "px";
+  fab.style.top = p.top + "px";
 }
 
 function placePanel(panel) {
   const box = viewportBox();
+  if (!needsVvTracking(box)) {
+    panel.style.left = "0";
+    panel.style.width = "";
+    panel.style.bottom = "0";
+    panel.style.maxHeight = "";
+    panel.style.transform = "";
+    return;
+  }
   const s = box.scale;
   panel.style.left = box.left + "px";
   panel.style.width = box.width * s + "px";
@@ -268,6 +314,8 @@ function makeDraggable(fab) {
     if (!moved && Math.hypot(dx, dy) < 8) return; // still a tap
     moved = true;
     fab.classList.remove("snap");
+    fab.style.right = "";
+    fab.style.bottom = "";
     const box = viewportBox();
     const r = fab.getBoundingClientRect();
     const maxL = box.left + box.width - r.width;

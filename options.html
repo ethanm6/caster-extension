@@ -46,6 +46,19 @@
   }
   input:checked + .track { background: #3f51b5; }
   input:checked + .track::before { transform: translateX(20px); }
+  .links {
+    display: flex;
+    gap: 20px;
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(128, 128, 128, 0.25);
+    font-size: 14px;
+  }
+  .links a { color: #3f51b5; text-decoration: none; }
+  .links a:hover { text-decoration: underline; }
+  @media (prefers-color-scheme: dark) {
+    .links a { color: #9fa8da; }
+  }
 </style>
 </head>
 <body>
@@ -60,6 +73,10 @@
     When off, the cast button stays hidden and pages aren't scanned for videos
     or streams. The Caster entry in the extensions menu still opens the panel.
   </p>
+  <nav class="links">
+    <a href="https://github.com/ethanm6/caster-extension" target="_blank" rel="noopener">Source code</a>
+    <a href="https://ko-fi.com/ethanm6" target="_blank" rel="noopener">Support development</a>
+  </nav>
   <script src="options.js"></script>
 </body>
 </html>

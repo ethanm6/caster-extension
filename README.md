@@ -15,13 +15,15 @@ A Firefox for Android extension that finds videos on the page you're viewing and
 
 ## Installing
 
-Not yet listed on addons.mozilla.org. Until then, build the package yourself:
+[![Get the Add-on for Firefox](https://blog.mozilla.org/addons/files/2020/04/get-the-addon-fx-apr-2020.svg)](https://addons.mozilla.org/en-US/firefox/addon/video-caster-companion/)
+
+Install it from [addons.mozilla.org](https://addons.mozilla.org/en-US/firefox/addon/video-caster-companion/), or build the package yourself:
 
 ```bash
 zip -r -FS caster-extension.xpi manifest.json background.js scanner.js ui.js content.css options.html options.js icons LICENSE
 ```
 
-Release Firefox for Android only installs signed extensions, so load the xpi in Firefox Nightly: Settings → Extensions → Install extension from file.
+Release Firefox for Android only installs signed extensions, so load a self-built xpi in Firefox Nightly: Settings → Extensions → Install extension from file.
 
 ## Support
 

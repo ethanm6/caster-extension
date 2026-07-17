@@ -15,7 +15,7 @@ A Firefox for Android extension that finds videos on the page you're viewing and
 
 ## Installing
 
-[![Get the Add-on for Firefox](https://blog.mozilla.org/addons/files/2020/04/get-the-addon-fx-apr-2020.svg)](https://addons.mozilla.org/en-US/firefox/addon/video-caster-companion/)
+<a href="https://addons.mozilla.org/en-US/firefox/addon/video-caster-companion/"><img src="https://blog.mozilla.org/addons/files/2020/04/get-the-addon-fx-apr-2020.svg" alt="Get the Add-on for Firefox" width="140"></a>
 
 Install it from [addons.mozilla.org](https://addons.mozilla.org/en-US/firefox/addon/video-caster-companion/), or build the package yourself:
 

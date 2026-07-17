@@ -67,6 +67,11 @@ const UI_CSS = `
   font-size: 30px; line-height: 1; padding: 6px 14px; cursor: pointer;
 }
 .info { font-size: 23px; opacity: 0.7; }
+/* Center the header buttons as boxes; baseline alignment would float the
+   gear's SVG (which has no text baseline) above the ⓘ/× glyphs. */
+.btns { display: flex; align-items: center; }
+.gear { display: inline-flex; align-items: center; }
+.gear svg { width: 22px; height: 22px; display: block; }
 .dismiss {
   position: fixed; z-index: 2147483646;
   width: 56px; height: 56px; border-radius: 50%;
@@ -114,6 +119,11 @@ const UI_CSS = `
 }
 `;
 
+const GEAR_GLYPH = `
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor" aria-hidden="true">
+  <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+</svg>`;
+
 const CAST_GLYPH = `
 <svg viewBox="14 24 80 60" xmlns="http://www.w3.org/2000/svg" fill="currentColor" aria-hidden="true">
   <path d="M24,30h60c2.2,0 4,1.8 4,4v40c0,2.2 -1.8,4 -4,4H56v-6h26V36H26v8h-6v-10c0,-2.2 1.8,-4 4,-4z"/>
@@ -138,6 +148,7 @@ let panelAnimTimer = null;
 let debugOpen = false;
 let debugInfo = null;
 let fabCorner = "br"; // "t"/"b" + "l"/"r"
+let hideFab = false; // options-page switch: detect videos but keep the button hidden
 let fabDragging = false;
 let fabDismissed = false; // dragged onto the × — hidden until navigation
 let lastFabAnchor = ""; // last applied anchoring, to skip redundant writes
@@ -618,6 +629,15 @@ function ensureUi() {
   const heading = document.createElement("span");
   heading.textContent = "Videos on this page";
   const btns = document.createElement("span");
+  btns.className = "btns";
+  const settings = document.createElement("button");
+  settings.className = "close info gear";
+  settings.title = "Settings";
+  const gearDoc = new DOMParser().parseFromString(GEAR_GLYPH, "image/svg+xml");
+  settings.appendChild(document.importNode(gearDoc.documentElement, true));
+  settings.addEventListener("click", () => {
+    browser.runtime.sendMessage({ type: "open-options" }).catch(() => {});
+  });
   const info = document.createElement("button");
   info.className = "close info";
   info.textContent = "ⓘ";
@@ -628,7 +648,7 @@ function ensureUi() {
   close.textContent = "×";
   close.title = "Close";
   close.addEventListener("click", () => hidePanel());
-  btns.append(info, close);
+  btns.append(settings, info, close);
   head.append(heading, btns);
 
   const list = document.createElement("div");
@@ -779,7 +799,7 @@ function updateUi() {
   if (!videos.length && !ui) return;
   const { fab, badge } = ensureUi();
   const wasHidden = fab.hidden;
-  fab.hidden = videos.length === 0 || fabDismissed || !extEnabled;
+  fab.hidden = videos.length === 0 || fabDismissed || !extEnabled || hideFab;
   if (wasHidden && !fab.hidden) slideInFab(fab);
   badge.textContent = String(videos.length);
   if (panelOpen) renderList();
@@ -874,14 +894,23 @@ browser.runtime
   .catch(() => {});
 
 browser.storage.local
-  .get("fabCorner")
+  .get(["fabCorner", "hideFab"])
   .then((r) => {
+    hideFab = r.hideFab === true;
+    if (hideFab && ui) updateUi();
     if (/^[tb][lr]$/.test(r.fabCorner || "")) {
       fabCorner = r.fabCorner;
       repositionUi();
     }
   })
   .catch(() => {});
+
+// React live when the button-visibility switch is flipped in options.
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !changes.hideFab) return;
+  hideFab = changes.hideFab.newValue === true;
+  updateUi();
+});
 
 // scanner.js keeps extEnabled current; this hook reacts to the flip in the UI.
 onEnabledChange = () => {

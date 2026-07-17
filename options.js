@@ -2,16 +2,22 @@
 "use strict";
 
 const box = document.getElementById("enabled");
+const hideFabBox = document.getElementById("hideFab");
 
 browser.storage.local
-  .get("enabled")
+  .get(["enabled", "hideFab"])
   .then((r) => {
     box.checked = r.enabled !== false;
+    hideFabBox.checked = r.hideFab === true;
   })
   .catch(() => {});
 
 box.addEventListener("change", () => {
   browser.storage.local.set({ enabled: box.checked }).catch(() => {});
+});
+
+hideFabBox.addEventListener("change", () => {
+  browser.storage.local.set({ hideFab: hideFabBox.checked }).catch(() => {});
 });
 
 // The options page is embedded in Firefox's settings UI, so a plain link

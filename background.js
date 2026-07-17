@@ -446,6 +446,11 @@ browser.runtime.onMessage.addListener((msg, sender) => {
   if (!sender.tab) return undefined;
   const tabId = sender.tab.id;
 
+  if (msg.type === "open-options") {
+    browser.runtime.openOptionsPage().catch(() => {});
+    return undefined;
+  }
+
   if (msg.type === "get-findings") {
     return Promise.resolve(findingsFor(tabId));
   }
